@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: verifica que el usuario autenticado sea profesor
+    function esProfesor() {
+      return request.auth != null
+        && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'profesor';
+    }
+
+    // Cuota global del sistema: solo accesible desde el Admin SDK (Cloud Functions)
+    match /sistema/{doc} {
+      allow read, write: if false;
+    }
+
+    // Sesiones de cuota por usuario: solo el propio usuario y Cloud Functions
+    match /sesiones/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Perfiles de usuario: cada usuario lee/escribe solo el propio
+    match /usuarios/{uid} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Laboratorios: lectura pública, creación y edición solo para profesores
+    match /laboratorios/{laboratorioId} {
+      allow read: if true;
+      allow create: if esProfesor();
+      allow update, delete: if esProfesor()
+                            && request.auth.uid == resource.data.ownerId;
+    }
+
+    // Evaluaciones: escritura solo desde Cloud Functions (Admin SDK bypassa las reglas)
+    // Lectura: el propio alumno o cualquier profesor
+    match /evaluaciones/{evaluacionId} {
+      allow read: if request.auth != null
+                  && (resource.data.uid == request.auth.uid || esProfesor());
+      allow write: if false;
+    }
+  }
+}

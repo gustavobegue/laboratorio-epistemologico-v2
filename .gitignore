@@ -1,0 +1,36 @@
+# Dependencias
+node_modules/
+functions/node_modules/
+
+# Build
+dist/
+functions/lib/
+
+# Variables de entorno (NUNCA commitear)
+.env.local
+.env.*.local
+functions/.env
+
+# Vite
+*.local
+
+# Firebase cache local
+.firebase/
+
+# Claude Code settings locales
+.claude/
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentos de cátedra (no publicar)
+*.pdf

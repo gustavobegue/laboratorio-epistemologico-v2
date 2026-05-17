@@ -1,0 +1,8 @@
+# Secretos locales para emulador — NUNCA commitear
+.secret.local
+
+# Build (solo el output compilado, no src/lib/)
+/lib/
+
+# Dependencias
+node_modules/

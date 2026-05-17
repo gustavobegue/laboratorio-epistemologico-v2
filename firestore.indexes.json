@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "laboratorios",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ownerId", "order": "ASCENDING" },
+        { "fieldPath": "actualizadoEn", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "evaluaciones",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "laboratorioId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
