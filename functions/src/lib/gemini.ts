@@ -97,8 +97,10 @@ export async function evaluarConGemini(
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.2,
-        maxOutputTokens: 700,
+        maxOutputTokens: 8192,
         responseMimeType: 'application/json',
+        // @ts-expect-error thinkingConfig no está en los tipos de v0.21 pero sí en la API
+        thinkingConfig: { thinkingBudget: 0 },
       },
     })
     text = limpiarJson(result.response.text())

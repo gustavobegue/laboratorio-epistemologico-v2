@@ -300,7 +300,9 @@ Respondé ÚNICAMENTE con este JSON, sin texto adicional:
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.3,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 8192,
+        // @ts-expect-error thinkingConfig no está en los tipos de v0.21 pero sí en la API
+        thinkingConfig: { thinkingBudget: 0 },
       },
     })
     let finishReason = 'UNKNOWN'
