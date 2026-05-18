@@ -293,13 +293,22 @@ Respondé ÚNICAMENTE con este JSON, sin texto adicional:
   ]
 }`
 
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.3,
-      maxOutputTokens: 2048,
-    },
-  })
+  console.log(`[Gemini] Llamando a generateContent...`)
+  let result: Awaited<ReturnType<typeof model.generateContent>>
+  try {
+    result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 2048,
+      },
+    })
+    console.log(`[Gemini] generateContent OK`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`[Gemini] generateContent() falló: ${msg}`)
+    throw new Error(`Gemini API call failed: ${msg}`)
+  }
 
   let rawResponse: string
   try {
