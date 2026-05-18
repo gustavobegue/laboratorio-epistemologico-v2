@@ -53,6 +53,65 @@ export function LaboratorioPage() {
 
   const historial = useHistorialAlumno(labId ?? '', user?.uid)
 
+  const proposicion = laboratorio?.proposiciones[proposicionIdx]
+  const historialDeEstaProposicion = proposicion ? historial.filter((e) => e.proposicionId === proposicion.id) : []
+
+  const aplicarYEvaluar = useCallback((pastillaAplicada: PastillaAplicada) => {
+    if (!laboratorio || !proposicion) return
+    setPastillasAplicadas((prev) => {
+      const yaAplicada = prev.some((p) => p.pastilla.id === pastillaAplicada.pastilla.id)
+      return yaAplicada ? prev : [...prev, pastillaAplicada]
+    })
+    evaluar({
+      proposicion,
+      pastillaId: pastillaAplicada.pastilla.id,
+      nombrePastilla: pastillaAplicada.pastilla.nombre,
+      laboratorioId: laboratorio.id,
+      proposicionId: proposicion.id,
+      sistemaTeoricoEspecificado: pastillaAplicada.sistemaTeoricoEspecificado,
+    })
+  }, [laboratorio, proposicion, evaluar])
+
+  const handleDrop = useCallback((pastillaId: string) => {
+    if (!user) {
+      navigate('/auth', { state: { from: location } })
+      return
+    }
+    const pastilla = PASTILLAS_MOCK.find((p) => p.id === pastillaId)
+    if (!pastilla) return
+    if (pastilla.tipo === 'relacion') {
+      setModalPastilla(pastilla)
+    } else {
+      aplicarYEvaluar({ pastilla })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aplicarYEvaluar, user, navigate, location])
+
+  const handleConfirmarRelacion = useCallback((sistemaTeoricoEspecificado: string) => {
+    if (!user) {
+      navigate('/auth', { state: { from: location } })
+      setModalPastilla(null)
+      return
+    }
+    if (!modalPastilla) return
+    aplicarYEvaluar({ pastilla: modalPastilla, sistemaTeoricoEspecificado })
+    setModalPastilla(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalPastilla, user, aplicarYEvaluar, navigate, location])
+
+  const handleQuitarPastilla = useCallback((pastillaId: string) => {
+    setPastillasAplicadas((prev) => prev.filter((p) => p.pastilla.id !== pastillaId))
+    if (pastillasAplicadas.length <= 1) reset()
+  }, [pastillasAplicadas.length, reset])
+
+  const handleCambiarProposicion = (idx: number) => {
+    setProposicionIdx(idx)
+    setPastillasAplicadas([])
+    setModeloCientificidad(null)
+    setHistorialAbierto(false)
+    reset()
+  }
+
   if (estado === 'cargando' || estado === 'idle') {
     return (
       <main className="min-h-screen bg-crema flex items-center justify-center">
@@ -70,71 +129,13 @@ export function LaboratorioPage() {
     )
   }
 
-  if (estado === 'error' || !laboratorio) {
+  if (estado === 'error' || !laboratorio || !proposicion) {
     return (
       <main className="min-h-screen bg-crema flex flex-col items-center justify-center gap-4">
         <p className="text-pizarra text-lg">No se pudo cargar el laboratorio.</p>
         <Link to="/" className="text-azul underline text-sm">← Volver al inicio</Link>
       </main>
     )
-  }
-
-  const proposicion = laboratorio.proposiciones[proposicionIdx]
-  const historialDeEstaProposicion = historial.filter((e) => e.proposicionId === proposicion.id)
-
-  const aplicarYEvaluar = (pastillaAplicada: PastillaAplicada) => {
-    setPastillasAplicadas((prev) => {
-      const yaAplicada = prev.some((p) => p.pastilla.id === pastillaAplicada.pastilla.id)
-      return yaAplicada ? prev : [...prev, pastillaAplicada]
-    })
-    evaluar({
-      proposicion,
-      pastillaId: pastillaAplicada.pastilla.id,
-      nombrePastilla: pastillaAplicada.pastilla.nombre,
-      laboratorioId: laboratorio.id,
-      proposicionId: proposicion.id,
-      sistemaTeoricoEspecificado: pastillaAplicada.sistemaTeoricoEspecificado,
-    })
-  }
-
-  const handleDrop = useCallback((pastillaId: string) => {
-    if (!user) {
-      navigate('/auth', { state: { from: location } })
-      return
-    }
-    const pastilla = PASTILLAS_MOCK.find((p) => p.id === pastillaId)
-    if (!pastilla) return
-    if (pastilla.tipo === 'relacion') {
-      setModalPastilla(pastilla)
-    } else {
-      aplicarYEvaluar({ pastilla })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proposicion, laboratorio.id, evaluar, user])
-
-  const handleConfirmarRelacion = useCallback((sistemaTeoricoEspecificado: string) => {
-    if (!user) {
-      navigate('/auth', { state: { from: location } })
-      setModalPastilla(null)
-      return
-    }
-    if (!modalPastilla) return
-    aplicarYEvaluar({ pastilla: modalPastilla, sistemaTeoricoEspecificado })
-    setModalPastilla(null)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modalPastilla, user])
-
-  const handleQuitarPastilla = useCallback((pastillaId: string) => {
-    setPastillasAplicadas((prev) => prev.filter((p) => p.pastilla.id !== pastillaId))
-    if (pastillasAplicadas.length <= 1) reset()
-  }, [pastillasAplicadas.length, reset])
-
-  const handleCambiarProposicion = (idx: number) => {
-    setProposicionIdx(idx)
-    setPastillasAplicadas([])
-    setModeloCientificidad(null)
-    setHistorialAbierto(false)
-    reset()
   }
 
   return (
