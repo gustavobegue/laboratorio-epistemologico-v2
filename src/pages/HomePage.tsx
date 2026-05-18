@@ -30,6 +30,15 @@ function VistaProfesor() {
   const [formulario, setFormulario] = useState<ModoFormulario>(null)
   const [eliminando, setEliminando] = useState<string | null>(null)
   const [confirmarEliminar, setConfirmarEliminar] = useState<string | null>(null)
+  const [copiadoId, setCopiadoId] = useState<string | null>(null)
+
+  const handleCopiarEnlace = (labId: string) => {
+    const url = `${window.location.origin}/lab/${labId}`
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiadoId(labId)
+      setTimeout(() => setCopiadoId(null), 2000)
+    })
+  }
 
   const cargarLabs = async () => {
     if (!user) return
@@ -145,6 +154,15 @@ function VistaProfesor() {
                 </button>
 
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => handleCopiarEnlace(lab.id)}
+                    className="px-3 py-1.5 text-xs text-pizarra border border-gray-200 rounded-lg
+                               hover:border-azul/40 hover:text-azul transition-colors"
+                    aria-label={`Copiar enlace de ${lab.titulo}`}
+                    title={`${window.location.origin}/lab/${lab.id}`}
+                  >
+                    {copiadoId === lab.id ? '¡Copiado!' : 'Copiar enlace'}
+                  </button>
                   <button
                     onClick={() => setFormulario({ tipo: 'editar', lab })}
                     className="px-3 py-1.5 text-xs text-pizarra border border-gray-200 rounded-lg

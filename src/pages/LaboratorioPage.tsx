@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 
 import { useLaboratorio } from '../hooks/useLaboratorio'
 import { useEvaluacion } from '../hooks/useEvaluacion'
@@ -40,7 +40,9 @@ export function LaboratorioPage() {
   const { labId } = useParams<{ labId: string }>()
   const { laboratorio, estado } = useLaboratorio(labId)
   const { estado: estadoEval, respuesta, mensajeCuota, evaluar, reset } = useEvaluacion()
-  const { rol, user } = useAuthStore()
+  const { rol, user, cargando: authCargando } = useAuthStore()
+  const navigate = useNavigate()
+  const location = useLocation()
 
   const [proposicionIdx, setProposicionIdx] = useState(0)
   const [pastillasAplicadas, setPastillasAplicadas] = useState<PastillaAplicada[]>([])
@@ -96,6 +98,10 @@ export function LaboratorioPage() {
   }
 
   const handleDrop = useCallback((pastillaId: string) => {
+    if (!user) {
+      navigate('/auth', { state: { from: location } })
+      return
+    }
     const pastilla = PASTILLAS_MOCK.find((p) => p.id === pastillaId)
     if (!pastilla) return
     if (pastilla.tipo === 'relacion') {
@@ -104,14 +110,19 @@ export function LaboratorioPage() {
       aplicarYEvaluar({ pastilla })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proposicion, laboratorio.id, evaluar])
+  }, [proposicion, laboratorio.id, evaluar, user])
 
   const handleConfirmarRelacion = useCallback((sistemaTeoricoEspecificado: string) => {
+    if (!user) {
+      navigate('/auth', { state: { from: location } })
+      setModalPastilla(null)
+      return
+    }
     if (!modalPastilla) return
     aplicarYEvaluar({ pastilla: modalPastilla, sistemaTeoricoEspecificado })
     setModalPastilla(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modalPastilla])
+  }, [modalPastilla, user])
 
   const handleQuitarPastilla = useCallback((pastillaId: string) => {
     setPastillasAplicadas((prev) => prev.filter((p) => p.pastilla.id !== pastillaId))
@@ -184,6 +195,18 @@ export function LaboratorioPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-4">
                 <ProposicionDisplay proposicion={proposicion} indice={proposicionIdx} />
+                {!user && !authCargando && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+                    Para analizar proposiciones necesitás{' '}
+                    <button
+                      onClick={() => navigate('/auth', { state: { from: location } })}
+                      className="underline font-medium hover:text-amber-900"
+                    >
+                      iniciar sesión o crear una cuenta
+                    </button>
+                    .
+                  </div>
+                )}
                 <AnalisisZone
                   pastillasAplicadas={pastillasAplicadas}
                   onDrop={handleDrop}

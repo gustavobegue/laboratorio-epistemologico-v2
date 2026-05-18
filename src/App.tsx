@@ -39,14 +39,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/lab/:labId"
-        element={
-          <ProtectedRoute>
-            <LaboratorioPage />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/lab/:labId" element={<LaboratorioPage />} />
     </Routes>
   )
 }
