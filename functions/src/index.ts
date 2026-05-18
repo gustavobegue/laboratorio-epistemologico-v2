@@ -306,23 +306,26 @@ Respondé ÚNICAMENTE con este JSON, sin texto adicional:
     for await (const chunk of streamResult.stream) {
       rawResponse += chunk.text()
     }
-    console.log(`[Gemini] Stream completo (${rawResponse.length} chars): ${JSON.stringify(rawResponse).slice(0, 500)}`)
+    console.log(`[Gemini] Stream completo (${rawResponse.length} chars)`)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error(`[Gemini] generateContentStream() falló: ${msg}`)
     throw new Error(`Gemini API stream failed: ${msg}`)
   }
 
-  const firstBrace = rawResponse.indexOf('{')
-  const lastBrace = rawResponse.lastIndexOf('}')
-  if (firstBrace === -1 || lastBrace === -1 || firstBrace >= lastBrace) {
-    console.error(`[Gemini] Sin JSON en respuesta: ${rawResponse.slice(0, 200)}`)
-    throw new Error('No se encontró JSON en la respuesta de Gemini')
+  // Strip markdown fences if present, then parse
+  let jsonText = rawResponse.trim()
+  if (jsonText.startsWith('```')) {
+    const lines = jsonText.split('\n')
+    lines.shift()
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '```') {
+      lines.pop()
+    }
+    jsonText = lines.join('\n').trim()
   }
-  const rawText = rawResponse.slice(firstBrace, lastBrace + 1)
-  console.log(`[Gemini] JSON extraído (${rawText.length} chars): ${rawText.slice(0, 200)}`)
+  console.log(`[Gemini] JSON a parsear (${jsonText.length} chars): ${jsonText.slice(0, 200)}`)
 
-  const parsed = JSON.parse(rawText) as {
+  const parsed = JSON.parse(jsonText) as {
     tituloSugerido?: string
     proposiciones?: ProposicionGenerada[]
   }
