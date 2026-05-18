@@ -303,10 +303,13 @@ Respondé ÚNICAMENTE con este JSON, sin texto adicional:
         maxOutputTokens: 2048,
       },
     })
+    let finishReason = 'UNKNOWN'
     for await (const chunk of streamResult.stream) {
       rawResponse += chunk.text()
+      const reason = chunk.candidates?.[0]?.finishReason
+      if (reason) finishReason = String(reason)
     }
-    console.log(`[Gemini] Stream completo (${rawResponse.length} chars)`)
+    console.log(`[Gemini] Stream completo — finishReason: ${finishReason}, chars: ${rawResponse.length}`)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error(`[Gemini] generateContentStream() falló: ${msg}`)
