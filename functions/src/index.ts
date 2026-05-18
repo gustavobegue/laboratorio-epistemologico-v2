@@ -298,12 +298,28 @@ Respondé ÚNICAMENTE con este JSON, sin texto adicional:
     generationConfig: {
       temperature: 0.3,
       maxOutputTokens: 2048,
-      responseMimeType: 'application/json',
     },
   })
 
-  const rawText = result.response.text().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
-  console.log(`[Gemini] rawText preview: ${rawText.slice(0, 300)}`)
+  let rawResponse: string
+  try {
+    rawResponse = result.response.text()
+  } catch (e) {
+    console.error(`[Gemini] response.text() falló: ${e instanceof Error ? e.message : e}`)
+    throw new Error('Gemini devolvió una respuesta vacía o bloqueada')
+  }
+
+  console.log(`[Gemini] rawResponse (${rawResponse.length} chars): ${rawResponse.slice(0, 400)}`)
+
+  const firstBrace = rawResponse.indexOf('{')
+  const lastBrace = rawResponse.lastIndexOf('}')
+  if (firstBrace === -1 || lastBrace === -1 || firstBrace >= lastBrace) {
+    console.error(`[Gemini] Sin JSON en respuesta: ${rawResponse.slice(0, 200)}`)
+    throw new Error('No se encontró JSON en la respuesta de Gemini')
+  }
+  const rawText = rawResponse.slice(firstBrace, lastBrace + 1)
+  console.log(`[Gemini] JSON extraído (${rawText.length} chars): ${rawText.slice(0, 200)}`)
+
   const parsed = JSON.parse(rawText) as {
     tituloSugerido?: string
     proposiciones?: ProposicionGenerada[]
