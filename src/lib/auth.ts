@@ -4,10 +4,18 @@ import {
   signOut,
   deleteUser,
 } from 'firebase/auth'
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { httpsCallable } from 'firebase/functions'
 
-import { auth, db } from './firebase'
+import { auth, functions } from './firebase'
 import type { Rol } from '../types'
+
+interface CrearPerfilInput {
+  nombre: string
+  rol: Rol
+  codigoProfesor?: string
+}
+
+const crearPerfilFn = httpsCallable<CrearPerfilInput, { ok: boolean }>(functions, 'crearPerfil')
 
 export async function iniciarSesion(email: string, password: string): Promise<void> {
   await signInWithEmailAndPassword(auth, email, password)
@@ -18,19 +26,12 @@ export async function registrar(
   password: string,
   nombre: string,
   rol: Rol,
+  codigoProfesor?: string,
 ): Promise<void> {
   const { user } = await createUserWithEmailAndPassword(auth, email, password)
   try {
-    await setDoc(doc(db, 'usuarios', user.uid), {
-      nombre,
-      email,
-      rol,
-      evaluacionesHoy: 0,
-      fechaContadorEvaluaciones: new Date().toISOString().split('T')[0],
-      creadoEn: serverTimestamp(),
-    })
+    await crearPerfilFn({ nombre, rol, codigoProfesor })
   } catch (err) {
-    // Si falla el documento, eliminar la cuenta para no dejar estado inconsistente
     await deleteUser(user)
     throw err
   }

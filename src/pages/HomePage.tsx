@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
+import { collection, query, where, orderBy, getDocs, deleteDoc, doc } from 'firebase/firestore'
 
 import { db } from '../lib/firebase'
 import { useAuthStore } from '../stores/authStore'
@@ -12,9 +12,14 @@ interface LabResumen {
   id: string
   titulo: string
   descripcion?: string
-  cantidadProposiciones: number
+  proposiciones: Array<{ id: string; texto: string; fuenteContexto: string }>
   actualizadoEn: Date
 }
+
+type ModoFormulario =
+  | { tipo: 'crear' }
+  | { tipo: 'editar'; lab: LabResumen }
+  | null
 
 function VistaProfesor() {
   const navigate = useNavigate()
@@ -22,7 +27,9 @@ function VistaProfesor() {
   const setLaboratorioActivo = useLaboratorioStore((s) => s.setLaboratorioActivo)
   const [labs, setLabs] = useState<LabResumen[]>([])
   const [cargando, setCargando] = useState(true)
-  const [mostrarFormulario, setMostrarFormulario] = useState(false)
+  const [formulario, setFormulario] = useState<ModoFormulario>(null)
+  const [eliminando, setEliminando] = useState<string | null>(null)
+  const [confirmarEliminar, setConfirmarEliminar] = useState<string | null>(null)
 
   const cargarLabs = async () => {
     if (!user) return
@@ -37,9 +44,11 @@ function VistaProfesor() {
       setLabs(
         snap.docs.map((d) => ({
           id: d.id,
-          titulo: d.data().titulo,
+          titulo: d.data().titulo as string,
           descripcion: d.data().descripcion ?? undefined,
-          cantidadProposiciones: (d.data().proposiciones ?? []).length,
+          proposiciones: (d.data().proposiciones ?? []) as Array<{
+            id: string; texto: string; fuenteContexto: string
+          }>,
           actualizadoEn: d.data().actualizadoEn?.toDate() ?? new Date(),
         })),
       )
@@ -60,9 +69,27 @@ function VistaProfesor() {
     navigate(`/lab/${lab.id}`)
   }
 
-  const handleCreado = (labId: string) => {
-    setMostrarFormulario(false)
-    navigate(`/lab/${labId}`)
+  const handleGuardado = (labId: string) => {
+    const eraEdicion = formulario?.tipo === 'editar'
+    setFormulario(null)
+    if (eraEdicion) {
+      cargarLabs()
+    } else {
+      navigate(`/lab/${labId}`)
+    }
+  }
+
+  const handleEliminar = async (labId: string) => {
+    setEliminando(labId)
+    try {
+      await deleteDoc(doc(db, 'laboratorios', labId))
+      setLabs((prev) => prev.filter((l) => l.id !== labId))
+    } catch {
+      // falla silenciosamente — el usuario puede reintentar
+    } finally {
+      setEliminando(null)
+      setConfirmarEliminar(null)
+    }
   }
 
   return (
@@ -72,9 +99,8 @@ function VistaProfesor() {
           Mis laboratorios
         </h2>
         <button
-          onClick={() => setMostrarFormulario(true)}
-          className="text-sm px-4 py-1.5 bg-azul text-white rounded-lg
-                     hover:bg-azul/90 transition-colors"
+          onClick={() => setFormulario({ tipo: 'crear' })}
+          className="text-sm px-4 py-1.5 bg-azul text-white rounded-lg hover:bg-azul/90 transition-colors"
         >
           + Nuevo laboratorio
         </button>
@@ -88,7 +114,7 @@ function VistaProfesor() {
         <div className="bg-white border border-dashed border-gray-300 rounded-xl p-10 text-center">
           <p className="text-pizarra text-sm">No tenés laboratorios todavía.</p>
           <button
-            onClick={() => setMostrarFormulario(true)}
+            onClick={() => setFormulario({ tipo: 'crear' })}
             className="mt-3 text-sm text-azul underline hover:text-azul/80"
           >
             Crear el primero
@@ -99,39 +125,94 @@ function VistaProfesor() {
           {labs.map((lab) => (
             <article
               key={lab.id}
-              className="bg-white border border-gray-200 rounded-xl p-5
-                         hover:border-azul/40 hover:shadow-sm transition-all cursor-pointer"
-              onClick={() => handleAbrir(lab)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && handleAbrir(lab)}
-              aria-label={`Abrir laboratorio: ${lab.titulo}`}
+              className="bg-white border border-gray-200 rounded-xl p-5 hover:border-azul/40 hover:shadow-sm transition-all"
             >
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex items-start gap-4">
+                <button
+                  className="flex-1 text-left min-w-0"
+                  onClick={() => handleAbrir(lab)}
+                  aria-label={`Abrir laboratorio: ${lab.titulo}`}
+                >
                   <h3 className="font-medium text-azul">{lab.titulo}</h3>
                   {lab.descripcion && (
                     <p className="text-pizarra text-sm mt-0.5">{lab.descripcion}</p>
                   )}
                   <p className="text-xs text-pizarra opacity-60 mt-2">
-                    {lab.cantidadProposiciones} proposición
-                    {lab.cantidadProposiciones !== 1 ? 'es' : ''} · Actualizado{' '}
+                    {lab.proposiciones.length} proposición
+                    {lab.proposiciones.length !== 1 ? 'es' : ''} · Actualizado{' '}
                     {lab.actualizadoEn.toLocaleDateString('es-AR')}
                   </p>
+                </button>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => setFormulario({ tipo: 'editar', lab })}
+                    className="px-3 py-1.5 text-xs text-pizarra border border-gray-200 rounded-lg
+                               hover:border-azul/40 hover:text-azul transition-colors"
+                    aria-label={`Editar ${lab.titulo}`}
+                  >
+                    Editar
+                  </button>
+
+                  {confirmarEliminar === lab.id ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleEliminar(lab.id)}
+                        disabled={eliminando === lab.id}
+                        className="px-3 py-1.5 text-xs text-white bg-red-500 hover:bg-red-600
+                                   rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {eliminando === lab.id ? '…' : 'Confirmar'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmarEliminar(null)}
+                        className="px-2 py-1.5 text-xs text-pizarra hover:text-pizarra/70"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmarEliminar(lab.id)}
+                      className="px-3 py-1.5 text-xs text-red-500 border border-red-200 rounded-lg
+                                 hover:bg-red-50 transition-colors"
+                      aria-label={`Eliminar ${lab.titulo}`}
+                    >
+                      Eliminar
+                    </button>
+                  )}
+
+                  <span
+                    className="text-azul text-lg cursor-pointer"
+                    onClick={() => handleAbrir(lab)}
+                    aria-hidden
+                  >
+                    →
+                  </span>
                 </div>
-                <span className="text-azul text-lg" aria-hidden>
-                  →
-                </span>
               </div>
             </article>
           ))}
         </div>
       )}
 
-      {mostrarFormulario && (
+      {formulario?.tipo === 'crear' && (
         <CrearLaboratorioForm
-          onCreado={handleCreado}
-          onCancelar={() => setMostrarFormulario(false)}
+          onCreado={handleGuardado}
+          onCancelar={() => setFormulario(null)}
+        />
+      )}
+
+      {formulario?.tipo === 'editar' && (
+        <CrearLaboratorioForm
+          onCreado={handleGuardado}
+          onCancelar={() => setFormulario(null)}
+          modoEdicion={{
+            labId: formulario.lab.id,
+            titulo: formulario.lab.titulo,
+            descripcion: formulario.lab.descripcion,
+            proposiciones: formulario.lab.proposiciones,
+          }}
         />
       )}
     </section>
@@ -153,10 +234,6 @@ function VistaAlumno() {
 export function HomePage() {
   const { nombre, rol } = useAuthStore()
 
-  const handleCerrarSesion = async () => {
-    await cerrarSesion()
-  }
-
   return (
     <main className="min-h-screen bg-crema p-8 max-w-3xl mx-auto">
       <header className="mb-10 flex items-start justify-between gap-4">
@@ -168,7 +245,7 @@ export function HomePage() {
           <p className="text-sm text-pizarra font-medium">{nombre}</p>
           <p className="text-xs text-pizarra/60 capitalize">{rol}</p>
           <button
-            onClick={handleCerrarSesion}
+            onClick={cerrarSesion}
             className="text-xs text-pizarra/50 hover:text-pizarra mt-1 underline"
           >
             Cerrar sesión

@@ -74,6 +74,10 @@ Respondé ÚNICAMENTE con este JSON, sin texto adicional:
 }`
 }
 
+function limpiarJson(raw: string): string {
+  return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+}
+
 export async function evaluarConGemini(
   apiKey: string,
   proposicion: { texto: string; fuenteContexto: string },
@@ -84,7 +88,7 @@ export async function evaluarConGemini(
   console.log(`[Gemini] Iniciando evaluación — pastilla: ${pastillaId}`)
 
   const genAI = new GoogleGenerativeAI(apiKey)
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
   const prompt = construirPrompt(proposicion, pastillaId, nombrePastilla, sistemaTeoricoEspecificado)
 
   let text: string
@@ -97,7 +101,7 @@ export async function evaluarConGemini(
         responseMimeType: 'application/json',
       },
     })
-    text = result.response.text()
+    text = limpiarJson(result.response.text())
     console.log(`[Gemini] Respuesta recibida (${text.length} chars)`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

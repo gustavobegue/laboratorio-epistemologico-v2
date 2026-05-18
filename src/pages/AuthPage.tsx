@@ -8,6 +8,8 @@ type Modo = 'login' | 'registro'
 
 function mensajeDeError(err: unknown): string {
   const code = (err as { code?: string }).code ?? ''
+  const mensaje = (err as { message?: string }).message ?? ''
+
   if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
     return 'Email o contraseña incorrectos.'
   }
@@ -15,6 +17,9 @@ function mensajeDeError(err: unknown): string {
   if (code === 'auth/weak-password') return 'La contraseña debe tener al menos 6 caracteres.'
   if (code === 'auth/invalid-email') return 'El formato del email no es válido.'
   if (code === 'auth/too-many-requests') return 'Demasiados intentos fallidos. Esperá unos minutos.'
+  if (code === 'functions/permission-denied' || mensaje.includes('Código')) {
+    return 'Código de invitación incorrecto.'
+  }
   return 'Ocurrió un error. Intentá de nuevo.'
 }
 
@@ -28,12 +33,14 @@ export function AuthPage() {
   const [password, setPassword] = useState('')
   const [nombre, setNombre] = useState('')
   const [rol, setRol] = useState<Rol>('alumno')
+  const [codigoProfesor, setCodigoProfesor] = useState('')
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const limpiar = (nuevoModo: Modo) => {
     setModo(nuevoModo)
     setError(null)
+    setCodigoProfesor('')
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -46,7 +53,12 @@ export function AuthPage() {
         await iniciarSesion(email, password)
       } else {
         if (!nombre.trim()) { setError('El nombre es obligatorio.'); setCargando(false); return }
-        await registrar(email, password, nombre.trim(), rol)
+        if (rol === 'profesor' && !codigoProfesor.trim()) {
+          setError('El código de invitación docente es obligatorio.')
+          setCargando(false)
+          return
+        }
+        await registrar(email, password, nombre.trim(), rol, codigoProfesor.trim() || undefined)
       }
       navigate(destino, { replace: true })
     } catch (err) {
@@ -161,7 +173,7 @@ export function AuthPage() {
                         name="rol"
                         value={r}
                         checked={rol === r}
-                        onChange={() => setRol(r)}
+                        onChange={() => { setRol(r); setCodigoProfesor('') }}
                         className="sr-only"
                       />
                       <span className="text-sm font-medium capitalize">{r}</span>
@@ -171,6 +183,28 @@ export function AuthPage() {
                     </label>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {modo === 'registro' && rol === 'profesor' && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <label htmlFor="codigo" className="block text-sm font-medium text-amber-800 mb-1">
+                  Código de invitación docente
+                </label>
+                <input
+                  id="codigo"
+                  type="text"
+                  value={codigoProfesor}
+                  onChange={(e) => setCodigoProfesor(e.target.value)}
+                  placeholder="Solicitalo a la cátedra"
+                  className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400
+                             bg-white"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-amber-700 mt-1">
+                  Solo los docentes de la cátedra pueden registrarse como profesores.
+                </p>
               </div>
             )}
 

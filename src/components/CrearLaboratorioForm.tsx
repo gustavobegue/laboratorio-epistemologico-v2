@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { httpsCallable } from 'firebase/functions'
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 
-import { functions } from '../lib/firebase'
+import { functions, db } from '../lib/firebase'
 import { useGenerarProposiciones } from '../hooks/useGenerarProposiciones'
 
 interface ProposicionDraft {
+  id?: string
   texto: string
   fuenteContexto: string
 }
@@ -12,7 +14,7 @@ interface ProposicionDraft {
 interface CrearLaboratorioInput {
   titulo: string
   descripcion?: string
-  proposiciones: ProposicionDraft[]
+  proposiciones: Array<{ texto: string; fuenteContexto: string }>
 }
 
 interface CrearLaboratorioResult {
@@ -26,15 +28,28 @@ const crearLaboratorioFn = httpsCallable<CrearLaboratorioInput, CrearLaboratorio
 
 const PROPOSICION_VACIA: ProposicionDraft = { texto: '', fuenteContexto: '' }
 
+interface ModoEdicion {
+  labId: string
+  titulo: string
+  descripcion?: string
+  proposiciones: Array<{ id: string; texto: string; fuenteContexto: string }>
+}
+
 interface Props {
   onCreado: (labId: string) => void
   onCancelar: () => void
+  modoEdicion?: ModoEdicion
 }
 
-export function CrearLaboratorioForm({ onCreado, onCancelar }: Props) {
-  const [titulo, setTitulo] = useState('')
-  const [descripcion, setDescripcion] = useState('')
-  const [proposiciones, setProposiciones] = useState<ProposicionDraft[]>([{ ...PROPOSICION_VACIA }])
+export function CrearLaboratorioForm({ onCreado, onCancelar, modoEdicion }: Props) {
+  const esEdicion = !!modoEdicion
+
+  const [titulo, setTitulo] = useState(modoEdicion?.titulo ?? '')
+  const [descripcion, setDescripcion] = useState(modoEdicion?.descripcion ?? '')
+  const [proposiciones, setProposiciones] = useState<ProposicionDraft[]>(
+    modoEdicion?.proposiciones.map((p) => ({ id: p.id, texto: p.texto, fuenteContexto: p.fuenteContexto }))
+    ?? [{ ...PROPOSICION_VACIA }],
+  )
   const [urlArticulo, setUrlArticulo] = useState('')
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -79,14 +94,37 @@ export function CrearLaboratorioForm({ onCreado, onCancelar }: Props) {
 
     setCargando(true)
     try {
-      const result = await crearLaboratorioFn({
-        titulo: titulo.trim(),
-        descripcion: descripcion.trim() || undefined,
-        proposiciones: proposicionesValidas,
-      })
-      onCreado(result.data.laboratorioId)
+      if (esEdicion && modoEdicion) {
+        const proposicionesConId = proposicionesValidas.map((p, i) => ({
+          id: p.id ?? `prop-${Date.now()}-${i}`,
+          texto: p.texto.trim(),
+          fuenteContexto: p.fuenteContexto.trim(),
+          fuenteUrl: null,
+        }))
+        await updateDoc(doc(db, 'laboratorios', modoEdicion.labId), {
+          titulo: titulo.trim(),
+          descripcion: descripcion.trim() || null,
+          proposiciones: proposicionesConId,
+          actualizadoEn: serverTimestamp(),
+        })
+        onCreado(modoEdicion.labId)
+      } else {
+        const result = await crearLaboratorioFn({
+          titulo: titulo.trim(),
+          descripcion: descripcion.trim() || undefined,
+          proposiciones: proposicionesValidas.map((p) => ({
+            texto: p.texto.trim(),
+            fuenteContexto: p.fuenteContexto.trim(),
+          })),
+        })
+        onCreado(result.data.laboratorioId)
+      }
     } catch {
-      setError('No se pudo crear el laboratorio. Intentá de nuevo.')
+      setError(
+        esEdicion
+          ? 'No se pudo guardar los cambios. Intentá de nuevo.'
+          : 'No se pudo crear el laboratorio. Intentá de nuevo.',
+      )
     } finally {
       setCargando(false)
     }
@@ -96,54 +134,57 @@ export function CrearLaboratorioForm({ onCreado, onCancelar }: Props) {
     <div
       role="dialog"
       aria-modal="true"
-      aria-labelledby="crear-lab-titulo"
+      aria-labelledby="lab-form-titulo"
       className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
     >
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-100">
-          <h2 id="crear-lab-titulo" className="text-xl font-semibold text-azul">
-            Nuevo laboratorio
+          <h2 id="lab-form-titulo" className="text-xl font-semibold text-azul">
+            {esEdicion ? 'Editar laboratorio' : 'Nuevo laboratorio'}
           </h2>
-          <p className="text-sm text-pizarra mt-1">
-            Pegá la URL de una noticia y Gemini genera las proposiciones automáticamente, o cargalas a mano.
-          </p>
+          {!esEdicion && (
+            <p className="text-sm text-pizarra mt-1">
+              Pegá la URL de una noticia y Gemini genera las proposiciones automáticamente, o cargalas a mano.
+            </p>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
-
-          {/* Generación con IA desde URL */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
-            <p className="text-sm font-medium text-azul">Generar proposiciones desde una noticia</p>
-            <div className="flex gap-2">
-              <input
-                type="url"
-                value={urlArticulo}
-                onChange={(e) => { setUrlArticulo(e.target.value); limpiarError() }}
-                placeholder="https://www.infobae.com/articulo..."
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm
-                           focus:outline-none focus:ring-2 focus:ring-azul/30 focus:border-azul"
-                disabled={generando}
-              />
-              <button
-                type="button"
-                onClick={handleGenerar}
-                disabled={generando || !urlArticulo.trim()}
-                className="px-4 py-2 bg-azul text-white text-sm rounded-lg
-                           hover:bg-azul/90 transition-colors disabled:opacity-50 disabled:cursor-wait
-                           whitespace-nowrap"
-              >
-                {generando ? 'Generando…' : 'Generar con IA'}
-              </button>
+          {/* Generación con IA — solo en modo creación */}
+          {!esEdicion && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-medium text-azul">Generar proposiciones desde una noticia</p>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={urlArticulo}
+                  onChange={(e) => { setUrlArticulo(e.target.value); limpiarError() }}
+                  placeholder="https://www.infobae.com/articulo..."
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-azul/30 focus:border-azul"
+                  disabled={generando}
+                />
+                <button
+                  type="button"
+                  onClick={handleGenerar}
+                  disabled={generando || !urlArticulo.trim()}
+                  className="px-4 py-2 bg-azul text-white text-sm rounded-lg
+                             hover:bg-azul/90 transition-colors disabled:opacity-50 disabled:cursor-wait
+                             whitespace-nowrap"
+                >
+                  {generando ? 'Generando…' : 'Generar con IA'}
+                </button>
+              </div>
+              {generando && (
+                <p className="text-xs text-pizarra animate-pulse">
+                  Gemini está leyendo el artículo y extrayendo proposiciones…
+                </p>
+              )}
+              {errorGeneracion && (
+                <p role="alert" className="text-xs text-red-600">{errorGeneracion}</p>
+              )}
             </div>
-            {generando && (
-              <p className="text-xs text-pizarra animate-pulse">
-                Gemini está leyendo el artículo y extrayendo proposiciones…
-              </p>
-            )}
-            {errorGeneracion && (
-              <p role="alert" className="text-xs text-red-600">{errorGeneracion}</p>
-            )}
-          </div>
+          )}
 
           {/* Título y descripción */}
           <div className="space-y-4">
@@ -182,7 +223,7 @@ export function CrearLaboratorioForm({ onCreado, onCancelar }: Props) {
           <div>
             <h3 className="text-sm font-semibold text-pizarra mb-3">
               Proposiciones ({proposiciones.length}/5)
-              {proposiciones.some((p) => p.texto) && (
+              {!esEdicion && proposiciones.some((p) => p.texto) && (
                 <span className="ml-2 text-xs font-normal text-pizarra/60">
                   — podés editar las generadas por IA antes de crear
                 </span>
@@ -270,7 +311,9 @@ export function CrearLaboratorioForm({ onCreado, onCancelar }: Props) {
               className="px-4 py-2 text-sm bg-azul text-white rounded-lg
                          hover:bg-azul/90 transition-colors disabled:opacity-50 disabled:cursor-wait"
             >
-              {cargando ? 'Creando…' : 'Crear laboratorio'}
+              {cargando
+                ? (esEdicion ? 'Guardando…' : 'Creando…')
+                : (esEdicion ? 'Guardar cambios' : 'Crear laboratorio')}
             </button>
           </div>
         </form>

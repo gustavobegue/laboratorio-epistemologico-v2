@@ -8,6 +8,51 @@ import { evaluarConGemini, type RespuestaLlm } from './lib/gemini'
 admin.initializeApp()
 const db = admin.firestore()
 const geminiApiKey = defineSecret('GEMINI_API_KEY')
+const codigoProfesorSecret = defineSecret('CODIGO_PROFESOR')
+
+// ─── Crear perfil de usuario ──────────────────────────────────────────────────
+
+interface CrearPerfilInput {
+  nombre: string
+  rol: 'profesor' | 'alumno'
+  codigoProfesor?: string
+}
+
+export const crearPerfil = onCall<CrearPerfilInput>(
+  { secrets: [codigoProfesorSecret] },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Se requiere autenticación.')
+    }
+
+    const { nombre, rol, codigoProfesor } = request.data
+    if (!nombre?.trim()) throw new HttpsError('invalid-argument', 'El nombre es obligatorio.')
+    if (rol !== 'profesor' && rol !== 'alumno') {
+      throw new HttpsError('invalid-argument', 'Rol inválido.')
+    }
+
+    if (rol === 'profesor') {
+      const codigoEsperado = codigoProfesorSecret.value()
+      if (!codigoProfesor || codigoProfesor.trim() !== codigoEsperado.trim()) {
+        throw new HttpsError('permission-denied', 'Código de invitación incorrecto.')
+      }
+    }
+
+    await db.collection('usuarios').doc(request.auth.uid).set({
+      nombre: nombre.trim(),
+      email: request.auth.token.email ?? '',
+      rol,
+      evaluacionesHoy: 0,
+      fechaContadorEvaluaciones: new Date().toISOString().split('T')[0],
+      creadoEn: admin.firestore.FieldValue.serverTimestamp(),
+    })
+
+    console.log(`[crearPerfil] Perfil creado: ${request.auth.uid} — rol: ${rol}`)
+    return { ok: true }
+  },
+)
+
+// ─── Evaluar pastilla ─────────────────────────────────────────────────────────
 
 interface EvaluarInput {
   proposicion: { texto: string; fuenteContexto: string }
@@ -32,7 +77,6 @@ export const evaluarPastilla = onCall<EvaluarInput>(
       throw new HttpsError('invalid-argument', 'Faltan campos obligatorios.')
     }
 
-    // Orden de validación: alumno → global → Gemini
     await verificarCuotaAlumno(uid)
     await verificarCuotaGlobal()
 
@@ -54,9 +98,13 @@ export const evaluarPastilla = onCall<EvaluarInput>(
       throw new HttpsError('internal', 'No se pudo obtener la evaluación. Intentá de nuevo.')
     }
 
-    // Log completo para reproducibilidad y auditoría pedagógica
+    // Fetch nombre del alumno para logueo legible en la vista de resultados
+    const usuarioSnap = await db.collection('usuarios').doc(uid).get()
+    const nombreAlumno = (usuarioSnap.data()?.nombre as string) ?? uid
+
     await db.collection('evaluaciones').add({
       uid,
+      nombreAlumno,
       laboratorioId,
       proposicionId,
       pastillaId,
@@ -68,7 +116,8 @@ export const evaluarPastilla = onCall<EvaluarInput>(
       elementosRelevantes: respuesta.elementosRelevantes,
       justificacionDoctrinal: respuesta.justificacionDoctrinal,
       sugerenciaPedagogica: respuesta.sugerenciaPedagogica,
-      modeloLlm: 'gemini-2.0-flash',
+      argumentoFormal: respuesta.argumentoFormal ?? null,
+      modeloLlm: 'gemini-2.5-flash',
       temperaturaUsada: 0.2,
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
     })
@@ -76,6 +125,8 @@ export const evaluarPastilla = onCall<EvaluarInput>(
     return respuesta
   },
 )
+
+// ─── Crear laboratorio ────────────────────────────────────────────────────────
 
 interface ProposicionInput {
   texto: string
@@ -118,7 +169,7 @@ export const crearLaboratorio = onCall<CrearLaboratorioInput>(async (request) =>
   const ref = await db.collection('laboratorios').add({
     titulo: titulo.trim(),
     descripcion: descripcion?.trim() ?? null,
-    ownerId: request.auth.uid,
+    ownerId: uid,
     proposiciones: proposicionesConId,
     creadoEn: admin.firestore.FieldValue.serverTimestamp(),
     actualizadoEn: admin.firestore.FieldValue.serverTimestamp(),
@@ -127,6 +178,8 @@ export const crearLaboratorio = onCall<CrearLaboratorioInput>(async (request) =>
 
   return { laboratorioId: ref.id }
 })
+
+// ─── Obtener laboratorio ──────────────────────────────────────────────────────
 
 interface ObtenerLaboratorioInput {
   laboratorioId: string
@@ -138,15 +191,15 @@ export const obtenerLaboratorio = onCall<ObtenerLaboratorioInput>(async (request
     throw new HttpsError('invalid-argument', 'Se requiere el ID del laboratorio.')
   }
 
-  const doc = await db.collection('laboratorios').doc(laboratorioId).get()
-  if (!doc.exists) {
+  const docSnap = await db.collection('laboratorios').doc(laboratorioId).get()
+  if (!docSnap.exists) {
     throw new HttpsError('not-found', 'Laboratorio no encontrado.')
   }
 
-  return { id: doc.id, ...doc.data() }
+  return { id: docSnap.id, ...docSnap.data() }
 })
 
-// ─── Generación de proposiciones desde URL ───────────────────────────────────
+// ─── Generación de proposiciones desde URL ────────────────────────────────────
 
 interface GenerarProposicionesInput {
   url: string
@@ -163,9 +216,6 @@ interface GenerarProposicionesResult {
 }
 
 function mensajeQuotaGemini(errorMsg: string): string {
-  // Cuando la cuota diaria está agotada, el error lo indica explícitamente.
-  // Gemini puede devolver retryDelay corto (del límite por minuto) aunque la cuota
-  // diaria también esté violada — por eso chequeamos la cuota diaria primero.
   const cuotaDiariaAgotada = errorMsg.includes('PerDay') || errorMsg.includes('per_day')
 
   if (cuotaDiariaAgotada) {
@@ -179,7 +229,6 @@ function mensajeQuotaGemini(errorMsg: string): string {
     return `Cuota diaria de Gemini agotada. Se reinicia a las 00:00 UTC (en ${tiempoStr}). Podés continuar más tarde.`
   }
 
-  // Solo límite por minuto — extraer el tiempo de espera del error
   const match = errorMsg.match(/retry in (\d+(?:\.\d+)?)s/i)
   const segundos = match ? Math.ceil(parseFloat(match[1])) : 0
 
@@ -198,8 +247,12 @@ function extraerTextoDeHtml(html: string): string {
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
+    .replace(/&quot;/g, "'")
     .replace(/&#39;/g, "'")
+    .replace(/&ldquo;/g, "'")
+    .replace(/&rdquo;/g, "'")
+    .replace(/“/g, "'")
+    .replace(/”/g, "'")
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -213,7 +266,7 @@ async function extraerProposicionesConGemini(
 ): Promise<GenerarProposicionesResult> {
   const { GoogleGenerativeAI } = await import('@google/generative-ai')
   const genAI = new GoogleGenerativeAI(apiKey)
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
   const prompt = `ROL: Asistente pedagógico para un docente de Epistemología en una universidad argentina.
 
@@ -244,12 +297,14 @@ Respondé ÚNICAMENTE con este JSON, sin texto adicional:
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: 0.3,
-      maxOutputTokens: 900,
+      maxOutputTokens: 2048,
       responseMimeType: 'application/json',
     },
   })
 
-  const parsed = JSON.parse(result.response.text()) as {
+  const rawText = result.response.text().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+  console.log(`[Gemini] rawText preview: ${rawText.slice(0, 300)}`)
+  const parsed = JSON.parse(rawText) as {
     tituloSugerido?: string
     proposiciones?: ProposicionGenerada[]
   }
