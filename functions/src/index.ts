@@ -293,32 +293,25 @@ Respondé ÚNICAMENTE con este JSON, sin texto adicional:
   ]
 }`
 
-  console.log(`[Gemini] Llamando a generateContent...`)
-  let result: Awaited<ReturnType<typeof model.generateContent>>
+  console.log(`[Gemini] Llamando a generateContentStream...`)
+  let rawResponse = ''
   try {
-    result = await model.generateContent({
+    const streamResult = await model.generateContentStream({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.3,
         maxOutputTokens: 2048,
       },
     })
-    console.log(`[Gemini] generateContent OK`)
+    for await (const chunk of streamResult.stream) {
+      rawResponse += chunk.text()
+    }
+    console.log(`[Gemini] Stream completo (${rawResponse.length} chars): ${JSON.stringify(rawResponse).slice(0, 500)}`)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error(`[Gemini] generateContent() falló: ${msg}`)
-    throw new Error(`Gemini API call failed: ${msg}`)
+    console.error(`[Gemini] generateContentStream() falló: ${msg}`)
+    throw new Error(`Gemini API stream failed: ${msg}`)
   }
-
-  let rawResponse: string
-  try {
-    rawResponse = result.response.text()
-  } catch (e) {
-    console.error(`[Gemini] response.text() falló: ${e instanceof Error ? e.message : e}`)
-    throw new Error('Gemini devolvió una respuesta vacía o bloqueada')
-  }
-
-  console.log(`[Gemini] rawResponse (${rawResponse.length} chars): ${rawResponse.slice(0, 400)}`)
 
   const firstBrace = rawResponse.indexOf('{')
   const lastBrace = rawResponse.lastIndexOf('}')
